@@ -1,0 +1,39 @@
+services:
+  opcua-mock:
+    build:
+      context: .
+      dockerfile: mock-servers/opcua-mock/Dockerfile
+    networks:
+      - iiot-net
+
+  modbus-mock:
+    build:
+      context: .
+      dockerfile: mock-servers/modbus-mock/Dockerfile
+    networks:
+      - iiot-net
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    environment:
+      - OPCUA_ENDPOINT=opc.tcp://opcua-mock:4840
+      - MODBUS_HOST=modbus-mock
+      - MODBUS_PORT=502
+      - REST_PORT=3000
+      - WS_PORT=3001
+      - POLL_INTERVAL_MS=1000
+      - LOG_LEVEL=info
+    depends_on:
+      - opcua-mock
+      - modbus-mock
+    networks:
+      - iiot-net
+
+networks:
+  iiot-net:
+    driver: bridge

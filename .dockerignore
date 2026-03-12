@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.claude
+.agent
+.codex
+.cursor
+_bmad
+_bmad-output
+tests
+*.md
+.env
+.env.*
+!.env.example

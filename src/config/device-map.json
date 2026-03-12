@@ -1,0 +1,81 @@
+{
+  "opcua": {
+    "endpoint": "opc.tcp://opcua-mock:4840",
+    "devices": [
+      {
+        "deviceId": "PUMP_01",
+        "nodeId": "ns=2;s=PUMP_01.Command",
+        "dataType": "Boolean",
+        "description": "Main pump start/stop"
+      },
+      {
+        "deviceId": "PUMP_02",
+        "nodeId": "ns=2;s=PUMP_02.Command",
+        "dataType": "Boolean",
+        "description": "Backup pump start/stop"
+      }
+    ]
+  },
+  "modbus": {
+    "host": "modbus-mock",
+    "port": 502,
+    "unitId": 1,
+    "pollIntervalMs": 1000,
+    "devices": [
+      {
+        "deviceId": "SENSOR_P_01",
+        "register": 0,
+        "length": 2,
+        "dataType": "Float32",
+        "wordOrder": "AB_CD",
+        "unit": "bar",
+        "description": "Inlet pressure"
+      },
+      {
+        "deviceId": "SENSOR_P_02",
+        "register": 2,
+        "length": 2,
+        "dataType": "Float32",
+        "wordOrder": "CD_AB",
+        "unit": "bar",
+        "description": "Outlet pressure"
+      },
+      {
+        "deviceId": "SENSOR_F_01",
+        "register": 4,
+        "length": 2,
+        "dataType": "Float32",
+        "wordOrder": "AB_CD",
+        "unit": "m3/h",
+        "description": "Flow rate"
+      },
+      {
+        "deviceId": "SENSOR_L_01",
+        "register": 6,
+        "length": 2,
+        "dataType": "Float32",
+        "wordOrder": "AB_CD",
+        "unit": "m",
+        "description": "Water level"
+      },
+      {
+        "deviceId": "PUMP_01_STATUS",
+        "register": 8,
+        "length": 1,
+        "dataType": "UInt16",
+        "wordOrder": "AB_CD",
+        "unit": "",
+        "description": "Pump 1 running status (0=OFF, 1=ON)"
+      },
+      {
+        "deviceId": "PUMP_02_STATUS",
+        "register": 9,
+        "length": 1,
+        "dataType": "UInt16",
+        "wordOrder": "AB_CD",
+        "unit": "",
+        "description": "Pump 2 running status (0=OFF, 1=ON)"
+      }
+    ]
+  }
+}

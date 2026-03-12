@@ -1,0 +1,12 @@
+installation:
+  version: 6.0.0-alpha.23
+  installDate: 2026-03-12T15:35:35.749Z
+  lastUpdated: 2026-03-12T15:35:35.749Z
+modules:
+  - core
+  - bmm
+ides:
+  - claude-code
+  - codex
+  - cursor
+  - antigravity

@@ -1,0 +1,50 @@
+# Beads Integration Workflow - Sync BMAD artifacts to Beads
+name: beads-sync
+description: "Sync BMAD epics, stories, and tasks to Beads issue tracker for enhanced context management and recovery"
+author: "BMad"
+
+# Critical variables from config
+config_source: "{project-root}/_bmad/bmm/config.yaml"
+output_folder: "{config_source}:output_folder"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+document_output_language: "{config_source}:document_output_language"
+implementation_artifacts: "{config_source}:implementation_artifacts"
+planning_artifacts: "{config_source}:planning_artifacts"
+date: system-generated
+
+# Workflow components
+installed_path: "{project-root}/_bmad/bmm/workflows/beads-integration"
+instructions: "{installed_path}/instructions.md"
+
+# Beads configuration
+beads_prefix: "<project-prefix>"  # Short prefix for beads IDs (e.g., cdx-a1b2)
+beads_dir: "{project-root}/.beads"
+beads_primary: true  # Beads is the source of truth; BMAD files regenerate from Beads
+beads_conflict_policy: "beads_wins"  # beads_wins | bmad_wins | manual_review
+beads_mode: "daemon"  # daemon | direct
+beads_auto_start_daemon: true
+beads_sync_strategy: "on_compact"  # on_compact | manual
+beads_actor_source: "auto"  # auto | explicit | env | git
+
+# Input file patterns
+input_file_patterns:
+  sprint_status:
+    description: "Sprint status tracking file"
+    whole: "{implementation_artifacts}/sprint-status.yaml"
+    load_strategy: "FULL_LOAD"
+
+  epic_files:
+    description: "Epic definition files"
+    pattern: "{planning_artifacts}/epic*.md"
+    load_strategy: "SELECTIVE"
+
+  story_files:
+    description: "Story implementation files"
+    pattern: "{implementation_artifacts}/*.md"
+    load_strategy: "SELECTIVE"
+
+# Standalone for IDE menu generation
+standalone: true
+
+# No web bundle needed

@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Beads Context Recovery Task
+
+  Purpose: Help agents recover context after compact or when starting fresh session
+
+  Usage: Called automatically by beads-aware agents or manually when context is lost
+
+  Dependencies: Beads CLI (bd) must be installed and initialized in project
+-->
+<task id="_bmad/core/tasks/beads-context.xml" name="Beads Context Recovery">
+
+  <description>
+    Recover working context from Beads issue tracker when conversation history
+    is unavailable (after compact, new session, or agent handoff).
+  </description>
+
+  <when-to-use>
+    <trigger>Session start without clear context of what to work on</trigger>
+    <trigger>After context compact when previous work state is unclear</trigger>
+    <trigger>Agent handoff when taking over from another agent</trigger>
+    <trigger>User asks "what was I working on?" or "continue from last session"</trigger>
+  </when-to-use>
+
+  <prerequisites>
+    <check>Beads CLI installed: Run "bd --version"</check>
+    <check>Beads initialized: Check for .beads/ directory in project root</check>
+  </prerequisites>
+
+  <step n="1" goal="Check Beads availability">
+    <action>Run: bd --version</action>
+    <check if="command fails">
+      <output>
+        Beads CLI not found. To install:
+        ```bash
+        curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+        ```
+
+        After installation, initialize in project:
+        ```bash
+        bd init --prefix bmad
+        ```
+      </output>
+      <action>HALT - Cannot recover context without Beads</action>
+    </check>
+    <action>Run: bd where</action>
+    <check if="no .beads directory">
+      <output>Beads not initialized in this project. Run: bd init --prefix bmad</output>
+      <action>HALT - No Beads database to query</action>
+    </check>
+  </step>
+
+  <step n="2" goal="Find in-progress work">
+    <action>Run: bd list --status in_progress --json</action>
+    <store result="in_progress_tasks" />
+
+    <check if="in_progress_tasks is empty">
+      <action>Run: bd ready --json</action>
+      <store result="ready_tasks" />
+
+      <check if="ready_tasks is empty">
+        <output>
+          No tasks in progress or ready.
+
+          **Options:**
+          1. Check sprint-status.yaml for story assignments
+          2. Run sprint-status workflow to see current state
+          3. Create new tasks with: bd create "Task description" -t task -p 1
+        </output>
+        <action>Present options to user</action>
+      </check>
+
+      <check if="ready_tasks has items">
+        <output>
+          No work in progress. Ready tasks available:
+          {{ready_tasks_summary}}
+
+          To claim a task: bd update [id] --status in_progress
+        </output>
+      </check>
+    </check>
+
+    <check if="in_progress_tasks has items">
+      <action>Extract first in_progress task ID</action>
+      <store result="current_task_id" />
+      <goto step="3" />
+    </check>
+  </step>
+
+  <step n="3" goal="Load full context of current task">
+    <action>Run: bd show {{current_task_id}}</action>
+    <store result="task_details" />
+
+    <action>Parse task_details for:
+      - title: Task name
+      - status: Current status
+      - priority: P0-P4
+      - parent: Parent story/epic ID
+      - notes: Detailed progress notes
+    </action>
+
+    <check if="notes contain BMAD_FILE">
+      <action>Extract BMAD file path from notes</action>
+      <action>Read the referenced BMAD story/epic file</action>
+      <store result="bmad_context" />
+    </check>
+  </step>
+
+  <step n="4" goal="Parse progress notes for context">
+    <action>Extract from notes:
+      - COMPLETED: What has been done
+      - IN_PROGRESS: What was being worked on
+      - NEXT: What should be done next
+      - FILES_CHANGED: List of modified files
+      - KEY_DECISIONS: Important decisions made
+      - BLOCKERS: Any blocking issues
+    </action>
+
+    <check if="FILES_CHANGED exists">
+      <action>For each file in FILES_CHANGED:
+        - Verify file exists
+        - Note which files to review
+      </action>
+    </check>
+  </step>
+
+  <step n="5" goal="Present recovered context">
+    <output>
+      ## Context Recovered from Beads
+
+      **Current Task:** {{task_title}} ({{current_task_id}})
+      **Status:** {{task_status}}
+      **Priority:** P{{task_priority}}
+      **Parent:** {{task_parent}}
+
+      ### Progress Summary
+
+      **Completed:**
+      {{completed_items}}
+
+      **In Progress:**
+      {{in_progress_items}}
+
+      **Next Steps:**
+      {{next_items}}
+
+      **Files Changed:**
+      {{files_changed_list}}
+
+      **Key Decisions:**
+      {{key_decisions}}
+
+      **Blockers:**
+      {{blockers}}
+
+      ---
+
+      **Recommended Actions:**
+      1. Review files in FILES_CHANGED to understand current state
+      2. Continue from IN_PROGRESS items
+      3. Update Beads notes as you make progress: bd update {{current_task_id}} --notes "..."
+    </output>
+  </step>
+
+  <step n="6" goal="Load related BMAD files">
+    <check if="bmad_context exists">
+      <action>Read BMAD story file for full acceptance criteria and task list</action>
+      <action>Cross-reference Beads progress with story checkboxes</action>
+      <output>
+        ### BMAD Story Context
+
+        **Story File:** {{bmad_file_path}}
+        **Story Status:** {{story_status}}
+
+        **Tasks (from story file):**
+        {{task_list_with_checkboxes}}
+
+        **Beads vs Story Sync:**
+        - Tasks marked [x] in story: {{completed_in_story}}
+        - Tasks closed in Beads: {{closed_in_beads}}
+        - Sync status: {{sync_status}}
+      </output>
+    </check>
+  </step>
+
+  <notes>
+    <note>This task complements the standard BMAD workflow</note>
+    <note>Use Beads for quick queries, BMAD story files for full requirements</note>
+    <note>Always update both Beads AND story file when completing tasks</note>
+    <note>Write notes as if explaining to a future agent with zero context</note>
+  </notes>
+
+  <common-issues>
+    <issue problem="Beads and story file out of sync">
+      <solution>Run beads-sync workflow to reconcile differences</solution>
+    </issue>
+    <issue problem="Notes are empty or unhelpful">
+      <solution>Check story file's Dev Agent Record section for context</solution>
+    </issue>
+    <issue problem="Task in Beads not found in story">
+      <solution>May be discovered work - check if task has "discovered-from" dependency</solution>
+    </issue>
+  </common-issues>
+
+</task>
