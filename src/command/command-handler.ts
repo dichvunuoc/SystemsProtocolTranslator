@@ -18,6 +18,11 @@ export interface CommandPayload {
   action: string;
 }
 
+export interface WritePayload {
+  deviceId: string;
+  value: boolean | number;
+}
+
 export interface CommandResult {
   success: boolean;
   message: string;
@@ -79,6 +84,40 @@ export class CommandHandler {
 
     const msg = `Command ${action} cho ${deviceId} thành công (connection: ${route.connectionId})`;
     log.info({ deviceId, action, connectionId: route.connectionId }, msg);
+    return { success: true, message: msg };
+  }
+
+  async handleWrite(payload: WritePayload): Promise<CommandResult> {
+    const { deviceId, value } = payload;
+    log.info({ deviceId, value }, 'Nhan write');
+
+    const route = this.routeMap.get(deviceId);
+
+    if (!route) {
+      const deviceInfo = this.allDeviceIndex.get(deviceId);
+      if (deviceInfo && deviceInfo.role === 'telemetry') {
+        const msg = `Device "${deviceId}" la telemetry-only (connection: ${deviceInfo.connectionId}, protocol: ${deviceInfo.protocol}), khong ho tro write.`;
+        log.warn({ deviceId, connectionId: deviceInfo.connectionId }, msg);
+        throw new CommandValidationError(msg);
+      }
+      const msg = `Device không tồn tại: ${deviceId}`;
+      log.warn({ deviceId }, msg);
+      throw new CommandValidationError(msg);
+    }
+
+    if (route.protocol === 'profinet') {
+      const client = route.client as ProfinetClient;
+      const device = route.device as ProfinetCommandDevice;
+      const buffer = this.valueToBuffer(value, device.dataType);
+      await client.writeData(device.slot, device.subslot, device.index, buffer);
+    } else {
+      const client = route.client as OpcuaClient;
+      const device = route.device as OpcuaCommandDevice;
+      await client.writeValue(device.nodeId, value, device.dataType);
+    }
+
+    const msg = `Write cho ${deviceId} thanh cong (connection: ${route.connectionId})`;
+    log.info({ deviceId, connectionId: route.connectionId }, msg);
     return { success: true, message: msg };
   }
 

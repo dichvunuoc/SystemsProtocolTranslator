@@ -8,6 +8,7 @@ const log = logger.child({ module: 'rest-server' });
 // Giới hạn độ dài input — ngăn chặn payload quá lớn hoặc injection
 const MAX_DEVICE_ID_LENGTH = 64;
 const MAX_ACTION_LENGTH = 32;
+const MAX_VALUE_ABS = 1e12;
 
 export interface ConnectionStatus {
   connectionId: string;
@@ -73,6 +74,55 @@ export function createRestServer(deps: RestServerDeps) {
         res.status(400).json({ success: false, message });
       } else {
         log.error({ deviceId, action, error: message }, 'Lỗi xử lý command');
+        res.status(500).json({ success: false, message });
+      }
+    }
+  });
+
+  // POST /api/write — Ghi gia tri truc tiep (Boolean/number)
+  app.post('/api/write', async (req: Request, res: Response) => {
+    const { deviceId, value } = req.body;
+
+    if (deviceId === undefined || value === undefined) {
+      res.status(400).json({
+        success: false,
+        message: 'Thieu truong bat buoc: deviceId va value',
+      });
+      return;
+    }
+
+    if (
+      typeof deviceId !== 'string' ||
+      deviceId.length > MAX_DEVICE_ID_LENGTH ||
+      !/^[A-Za-z0-9_]+$/.test(deviceId)
+    ) {
+      res.status(400).json({
+        success: false,
+        message: 'Input khong hop le: deviceId chi chap nhan ky tu alphanumeric va underscore',
+      });
+      return;
+    }
+
+    const isValidValue =
+      typeof value === 'boolean' ||
+      (typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= MAX_VALUE_ABS);
+
+    if (!isValidValue) {
+      res.status(400).json({
+        success: false,
+        message: 'Input khong hop le: value phai la boolean hoac number huu han',
+      });
+      return;
+    }
+
+    try {
+      const result = await deps.commandHandler.handleWrite({ deviceId, value });
+      res.json(result);
+    } catch (err: any) {
+      const message = err.message || 'Lỗi không xác định';
+      if (err instanceof CommandValidationError) {
+        res.status(400).json({ success: false, message });
+      } else {
         res.status(500).json({ success: false, message });
       }
     }
