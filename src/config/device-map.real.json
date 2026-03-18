@@ -121,19 +121,19 @@
           "description": "Pump 1 start/stop"
         },
         {
-          "deviceId": "DATAOPCUA_READ_0",
+          "deviceId": "WRITE_DATAOPCUA_READ_0",
           "nodeId": "ns=3;s=\"dataOPCUa\".\"Read\"[0]",
           "dataType": "Float",
           "description": "Write dataOPCUa.Read[0]"
         },
         {
-          "deviceId": "DATAOPCUA_READ_1",
+          "deviceId": "WRITE_DATAOPCUA_READ_1",
           "nodeId": "ns=3;s=\"dataOPCUa\".\"Read\"[1]",
           "dataType": "Float",
           "description": "Write dataOPCUa.Read[1]"
         },
         {
-          "deviceId": "DATAOPCUA_READ_2",
+          "deviceId": "WRITE_DATAOPCUA_READ_2",
           "nodeId": "ns=3;s=\"dataOPCUa\".\"Read\"[2]",
           "dataType": "Float",
           "description": "Write dataOPCUa.Read[2]"
