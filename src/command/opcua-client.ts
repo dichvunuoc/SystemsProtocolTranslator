@@ -8,9 +8,16 @@ import {
   AttributeIds,
   StatusCodes,
   TimestampsToReturn,
+  MessageSecurityMode,
+  SecurityPolicy,
 } from 'node-opcua';
 import logger from '../utils/logger.js';
-import type { ReconnectConfig } from '../config/device-map.schema.js';
+import type {
+  ReconnectConfig,
+  OpcuaSecurityConfig,
+  OpcuaSecurityMode,
+  OpcuaSecurityPolicy,
+} from '../config/device-map.schema.js';
 
 export class OpcuaClient extends EventEmitter {
   private client: OPCUAClient;
@@ -19,6 +26,7 @@ export class OpcuaClient extends EventEmitter {
   private connectionId: string;
   private endpoint: string;
   private reconnectConfig: ReconnectConfig;
+  private security: OpcuaSecurityConfig;
   private connected = false;
   private reconnecting = false;
   private shouldReconnect = true;
@@ -28,21 +36,15 @@ export class OpcuaClient extends EventEmitter {
     connectionId: string,
     endpoint: string,
     reconnectConfig: ReconnectConfig,
+    security?: OpcuaSecurityConfig,
   ) {
     super();
     this.connectionId = connectionId;
     this.endpoint = endpoint;
     this.reconnectConfig = reconnectConfig;
+    this.security = security ?? {};
     this.log = logger.child({ module: 'opcua-client', connectionId });
-    this.client = OPCUAClient.create({
-      applicationName: 'ProtocolTranslatorGateway',
-      connectionStrategy: {
-        initialDelay: this.reconnectConfig.baseMs,
-        maxDelay: this.reconnectConfig.maxMs,
-        maxRetry: 0, // Tắt SDK reconnection — dùng logic custom
-      },
-      endpointMustExist: false,
-    });
+    this.client = this.createClient();
   }
 
   getConnectionId(): string {
@@ -53,7 +55,7 @@ export class OpcuaClient extends EventEmitter {
     try {
       this.log.info({ endpoint: this.endpoint }, 'Đang kết nối OPC UA...');
       await this.client.connect(this.endpoint);
-      this.session = await this.client.createSession();
+      this.session = await this.createSession();
       this.connected = true;
       this.reconnecting = false;
       this.log.info('Kết nối OPC UA thành công');
@@ -207,17 +209,9 @@ export class OpcuaClient extends EventEmitter {
       try {
         // Cleanup old client listeners trước khi tạo mới
         this.client.removeAllListeners('connection_lost');
-        this.client = OPCUAClient.create({
-          applicationName: 'ProtocolTranslatorGateway',
-          connectionStrategy: {
-            initialDelay: this.reconnectConfig.baseMs,
-            maxDelay: this.reconnectConfig.maxMs,
-            maxRetry: 0,
-          },
-          endpointMustExist: false,
-        });
+        this.client = this.createClient();
         await this.client.connect(this.endpoint);
-        this.session = await this.client.createSession();
+        this.session = await this.createSession();
         this.connected = true;
         this.reconnecting = false;
         this.log.info('Kết nối lại OPC UA thành công');
@@ -230,5 +224,66 @@ export class OpcuaClient extends EventEmitter {
     };
 
     setTimeout(attempt, delay);
+  }
+
+  private createClient(): OPCUAClient {
+    const mode = this.mapSecurityMode(this.security.mode);
+    const policy = this.mapSecurityPolicy(this.security.policy);
+
+    return OPCUAClient.create({
+      applicationName: 'ProtocolTranslatorGateway',
+      connectionStrategy: {
+        initialDelay: this.reconnectConfig.baseMs,
+        maxDelay: this.reconnectConfig.maxMs,
+        maxRetry: 0, // Tắt SDK reconnection — dùng logic custom
+      },
+      endpointMustExist: false,
+      securityMode: mode,
+      securityPolicy: policy,
+      certificateFile: this.security.certificateFile,
+      privateKeyFile: this.security.privateKeyFile,
+    });
+  }
+
+  private async createSession(): Promise<ClientSession> {
+    const auth = this.security.auth;
+    if (!auth || auth.type === 'anonymous') {
+      return await this.client.createSession();
+    }
+    // node-opcua: user identity for username/password
+    return await this.client.createSession({
+      userName: auth.username,
+      password: auth.password,
+    } as any);
+  }
+
+  private mapSecurityMode(mode?: OpcuaSecurityMode): MessageSecurityMode {
+    switch (mode) {
+      case 'Sign':
+        return MessageSecurityMode.Sign;
+      case 'SignAndEncrypt':
+        return MessageSecurityMode.SignAndEncrypt;
+      case 'None':
+      default:
+        return MessageSecurityMode.None;
+    }
+  }
+
+  private mapSecurityPolicy(policy?: OpcuaSecurityPolicy): SecurityPolicy {
+    switch (policy) {
+      case 'Basic128Rsa15':
+        return SecurityPolicy.Basic128Rsa15;
+      case 'Basic256':
+        return SecurityPolicy.Basic256;
+      case 'Basic256Sha256':
+        return SecurityPolicy.Basic256Sha256;
+      case 'Aes128_Sha256_RsaOaep':
+        return (SecurityPolicy as any).Aes128_Sha256_RsaOaep ?? SecurityPolicy.Basic256Sha256;
+      case 'Aes256_Sha256_RsaPss':
+        return (SecurityPolicy as any).Aes256_Sha256_RsaPss ?? SecurityPolicy.Basic256Sha256;
+      case 'None':
+      default:
+        return SecurityPolicy.None;
+    }
   }
 }

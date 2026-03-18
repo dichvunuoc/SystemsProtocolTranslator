@@ -5,6 +5,48 @@ export interface ReconnectConfig {
   maxMs: number;
 }
 
+// --- OPC UA Security ---
+
+export type OpcuaSecurityMode = 'None' | 'Sign' | 'SignAndEncrypt';
+export type OpcuaSecurityPolicy =
+  | 'None'
+  | 'Basic128Rsa15'
+  | 'Basic256'
+  | 'Basic256Sha256'
+  | 'Aes128_Sha256_RsaOaep'
+  | 'Aes256_Sha256_RsaPss';
+
+export type OpcuaAuth =
+  | { type: 'anonymous' }
+  | { type: 'username'; username: string; password: string };
+
+export interface OpcuaSecurityConfig {
+  /**
+   * Message security mode cho kênh OPC UA.
+   * - None: không ký/không mã hoá
+   * - Sign: ký (integrity)
+   * - SignAndEncrypt: ký + mã hoá (integrity + confidentiality)
+   */
+  mode?: OpcuaSecurityMode;
+  /**
+   * Security policy.
+   * Lưu ý: policy phải khớp với server endpoint bạn chọn.
+   */
+  policy?: OpcuaSecurityPolicy;
+  /**
+   * Đường dẫn file certificate PEM/DER của client (tuỳ server yêu cầu).
+   */
+  certificateFile?: string;
+  /**
+   * Đường dẫn file private key PEM của client (tuỳ server yêu cầu).
+   */
+  privateKeyFile?: string;
+  /**
+   * Xác thực user (nếu server bật).
+   */
+  auth?: OpcuaAuth;
+}
+
 // --- Telemetry Device Interfaces ---
 
 export interface ModbusTelemetryDevice {
@@ -62,6 +104,7 @@ export interface OpcuaConnection {
   protocol: 'opcua';
   description: string;
   endpoint: string;
+  security?: OpcuaSecurityConfig;
   telemetry: OpcuaTelemetryDevice[];
   commands: OpcuaCommandDevice[];
 }
@@ -185,6 +228,75 @@ function validateOpcuaCommandDevice(device: Record<string, unknown>, connectionI
   };
 }
 
+function validateOpcuaSecurityConfig(raw: unknown, connectionId: string): OpcuaSecurityConfig {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== 'object') {
+    throw new Error(`OPC UA connection "${connectionId}" có security không hợp lệ: phải là object`);
+  }
+  const s = raw as Record<string, unknown>;
+
+  const out: OpcuaSecurityConfig = {};
+
+  if (s.mode !== undefined) {
+    if (typeof s.mode !== 'string' || !['None', 'Sign', 'SignAndEncrypt'].includes(s.mode)) {
+      throw new Error(`OPC UA connection "${connectionId}" có security.mode không hợp lệ: ${String(s.mode)}`);
+    }
+    out.mode = s.mode as OpcuaSecurityMode;
+  }
+
+  if (s.policy !== undefined) {
+    const allowedPolicies: OpcuaSecurityPolicy[] = [
+      'None',
+      'Basic128Rsa15',
+      'Basic256',
+      'Basic256Sha256',
+      'Aes128_Sha256_RsaOaep',
+      'Aes256_Sha256_RsaPss',
+    ];
+    if (typeof s.policy !== 'string' || !allowedPolicies.includes(s.policy as OpcuaSecurityPolicy)) {
+      throw new Error(`OPC UA connection "${connectionId}" có security.policy không hợp lệ: ${String(s.policy)}`);
+    }
+    out.policy = s.policy as OpcuaSecurityPolicy;
+  }
+
+  if (s.certificateFile !== undefined) {
+    if (typeof s.certificateFile !== 'string' || s.certificateFile.length === 0) {
+      throw new Error(`OPC UA connection "${connectionId}" có security.certificateFile không hợp lệ`);
+    }
+    out.certificateFile = s.certificateFile;
+  }
+
+  if (s.privateKeyFile !== undefined) {
+    if (typeof s.privateKeyFile !== 'string' || s.privateKeyFile.length === 0) {
+      throw new Error(`OPC UA connection "${connectionId}" có security.privateKeyFile không hợp lệ`);
+    }
+    out.privateKeyFile = s.privateKeyFile;
+  }
+
+  if (s.auth !== undefined) {
+    if (!s.auth || typeof s.auth !== 'object') {
+      throw new Error(`OPC UA connection "${connectionId}" có security.auth không hợp lệ: phải là object`);
+    }
+    const a = s.auth as Record<string, unknown>;
+    if (typeof a.type !== 'string' || !['anonymous', 'username'].includes(a.type)) {
+      throw new Error(`OPC UA connection "${connectionId}" có security.auth.type không hợp lệ: ${String(a.type)}`);
+    }
+    if (a.type === 'anonymous') {
+      out.auth = { type: 'anonymous' };
+    } else {
+      if (typeof a.username !== 'string' || a.username.length === 0) {
+        throw new Error(`OPC UA connection "${connectionId}" có security.auth.username không hợp lệ`);
+      }
+      if (typeof a.password !== 'string') {
+        throw new Error(`OPC UA connection "${connectionId}" có security.auth.password không hợp lệ`);
+      }
+      out.auth = { type: 'username', username: a.username, password: a.password };
+    }
+  }
+
+  return out;
+}
+
 // --- Main Validation ---
 
 /**
@@ -276,6 +388,8 @@ export function validateDeviceMap(raw: unknown): DeviceMap {
         throw new Error(`OPC UA connection "${c.connectionId}" thiếu endpoint`);
       }
 
+      const security = validateOpcuaSecurityConfig(c.security, c.connectionId);
+
       const telemetry: OpcuaTelemetryDevice[] = [];
       for (const d of telemetryArr as unknown[]) {
         telemetry.push(validateOpcuaTelemetryDevice(d as Record<string, unknown>, c.connectionId));
@@ -291,6 +405,7 @@ export function validateDeviceMap(raw: unknown): DeviceMap {
         protocol: 'opcua',
         description: (c.description as string) || '',
         endpoint: c.endpoint,
+        security,
         telemetry,
         commands,
       });

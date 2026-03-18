@@ -79,7 +79,7 @@ async function main() {
       log.info({ connectionId: mc.connectionId, host: mc.host, port: mc.port }, 'Đã khởi tạo Modbus connection');
     } else if (conn.protocol === 'opcua') {
       const oc = conn as OpcuaConnection;
-      const client = new OpcuaClient(oc.connectionId, oc.endpoint, makeReconnectConfig());
+      const client = new OpcuaClient(oc.connectionId, oc.endpoint, makeReconnectConfig(), oc.security);
 
       opcuaClients.set(oc.connectionId, client);
       connectionStatuses.push({
