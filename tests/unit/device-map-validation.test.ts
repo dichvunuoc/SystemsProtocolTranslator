@@ -247,6 +247,158 @@ describe('validateDeviceMap', () => {
   });
 });
 
+function makeValidProfinetConfig() {
+  return {
+    connections: [
+      {
+        connectionId: 'PN_CONN_A',
+        protocol: 'profinet',
+        description: 'Test profinet',
+        host: 'localhost',
+        port: 34964,
+        deviceName: 'test-device',
+        pollIntervalMs: 500,
+        telemetry: [
+          { deviceId: 'PN_TEMP', slot: 1, subslot: 1, index: 0, length: 4, dataType: 'Float32', unit: '°C', description: 'Test temp' },
+        ],
+        commands: [
+          { deviceId: 'PN_VALVE', slot: 2, subslot: 1, index: 0, length: 1, dataType: 'Boolean', description: 'Test valve' },
+        ],
+      },
+    ],
+  };
+}
+
+describe('Profinet IO validation', () => {
+  it('happy path: valid Profinet connection passes validation', () => {
+    const result = validateDeviceMap(makeValidProfinetConfig());
+    expect(result.connections).toHaveLength(1);
+    const conn = result.connections[0];
+    expect(conn.protocol).toBe('profinet');
+  });
+
+  it('valid Profinet telemetry-only connection (no commands)', () => {
+    const config = makeValidProfinetConfig();
+    config.connections[0].commands = [];
+    const result = validateDeviceMap(config);
+    expect(result.connections).toHaveLength(1);
+  });
+
+  it('valid Profinet command-only connection (no telemetry)', () => {
+    const config = makeValidProfinetConfig();
+    config.connections[0].telemetry = [];
+    delete (config.connections[0] as any).pollIntervalMs;
+    const result = validateDeviceMap(config);
+    expect(result.connections).toHaveLength(1);
+  });
+
+  it('missing host → throw error', () => {
+    const config = makeValidProfinetConfig();
+    delete (config.connections[0] as any).host;
+    expect(() => validateDeviceMap(config)).toThrowError(/thiếu host/);
+  });
+
+  it('missing port → throw error', () => {
+    const config = makeValidProfinetConfig();
+    delete (config.connections[0] as any).port;
+    expect(() => validateDeviceMap(config)).toThrowError(/thiếu port/);
+  });
+
+  it('missing pollIntervalMs khi có telemetry → throw error', () => {
+    const config = makeValidProfinetConfig();
+    delete (config.connections[0] as any).pollIntervalMs;
+    expect(() => validateDeviceMap(config)).toThrowError(/thiếu pollIntervalMs/);
+  });
+
+  it('invalid slot (negative) → throw error', () => {
+    const config = makeValidProfinetConfig();
+    (config.connections[0].telemetry[0] as any).slot = -1;
+    expect(() => validateDeviceMap(config)).toThrowError(/slot không hợp lệ/);
+  });
+
+  it('invalid subslot (negative) → throw error', () => {
+    const config = makeValidProfinetConfig();
+    (config.connections[0].telemetry[0] as any).subslot = -1;
+    expect(() => validateDeviceMap(config)).toThrowError(/subslot không hợp lệ/);
+  });
+
+  it('invalid index (negative) → throw error', () => {
+    const config = makeValidProfinetConfig();
+    (config.connections[0].telemetry[0] as any).index = -1;
+    expect(() => validateDeviceMap(config)).toThrowError(/index không hợp lệ/);
+  });
+
+  it('invalid dataType → throw error', () => {
+    const config = makeValidProfinetConfig();
+    (config.connections[0].telemetry[0] as any).dataType = 'Float64';
+    expect(() => validateDeviceMap(config)).toThrowError(/dataType không hợp lệ/);
+  });
+
+  it('missing deviceId → throw error', () => {
+    const config = makeValidProfinetConfig();
+    delete (config.connections[0].telemetry[0] as any).deviceId;
+    expect(() => validateDeviceMap(config)).toThrowError(/deviceId không hợp lệ/);
+  });
+
+  it('missing unit trên telemetry device → throw error', () => {
+    const config = makeValidProfinetConfig();
+    delete (config.connections[0].telemetry[0] as any).unit;
+    expect(() => validateDeviceMap(config)).toThrowError(/thiếu unit/);
+  });
+
+  it('mixed protocol (Modbus + OPC UA + Profinet) → passes', () => {
+    const config = {
+      connections: [
+        {
+          connectionId: 'MB_CONN',
+          protocol: 'modbus',
+          description: 'Modbus',
+          host: 'localhost',
+          port: 502,
+          unitId: 1,
+          pollIntervalMs: 1000,
+          telemetry: [
+            { deviceId: 'MB_DEV', register: 0, length: 2, dataType: 'Float32', wordOrder: 'AB_CD', unit: 'bar', description: 'Test' },
+          ],
+          commands: [],
+        },
+        {
+          connectionId: 'OPC_CONN',
+          protocol: 'opcua',
+          description: 'OPC UA',
+          endpoint: 'opc.tcp://localhost:4840',
+          telemetry: [],
+          commands: [
+            { deviceId: 'OPC_DEV', nodeId: 'ns=2;s=OPC', dataType: 'Boolean', description: 'Test' },
+          ],
+        },
+        ...makeValidProfinetConfig().connections,
+      ],
+    };
+    const result = validateDeviceMap(config);
+    expect(result.connections).toHaveLength(3);
+  });
+
+  it('deviceId uniqueness across Profinet + other protocols → throw error on duplicate', () => {
+    const config = {
+      connections: [
+        {
+          connectionId: 'OPC_CONN',
+          protocol: 'opcua',
+          description: 'OPC UA',
+          endpoint: 'opc.tcp://localhost:4840',
+          telemetry: [],
+          commands: [
+            { deviceId: 'PN_TEMP', nodeId: 'ns=2;s=PN_TEMP', dataType: 'Boolean', description: 'Test' },
+          ],
+        },
+        ...makeValidProfinetConfig().connections,
+      ],
+    };
+    expect(() => validateDeviceMap(config)).toThrowError(/deviceId trùng.*PN_TEMP/);
+  });
+});
+
 describe('buildDeviceIndex', () => {
   it('build index đúng với role telemetry và command', () => {
     const deviceMap = validateDeviceMap(makeValidConfig());

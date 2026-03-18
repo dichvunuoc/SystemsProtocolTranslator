@@ -21,6 +21,18 @@ services:
     networks:
       - iiot-net
 
+  profinet-mock-a:
+    build:
+      context: .
+      dockerfile: mock-servers/profinet-mock/Dockerfile
+    environment:
+      PROFINET_PORT: 34964
+      DEVICE_NAME: s7-1500-station-a
+      TELEMETRY_DEVICES: "PN_TEMP_01:1:1:0:Float32:20:80,PN_PRESSURE_01:1:1:4:Float32:1:10"
+      COMMAND_DEVICES: "PN_VALVE_01:2:1:0:Boolean"
+    networks:
+      - iiot-net
+
   gateway:
     build:
       context: .
@@ -35,6 +47,7 @@ services:
     depends_on:
       - opcua-mock-a
       - opcua-mock-b
+      - profinet-mock-a
     networks:
       - iiot-net
 

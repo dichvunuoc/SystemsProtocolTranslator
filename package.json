@@ -13,6 +13,7 @@
     "mock:modbus:b": "STATION_PROFILE=minimal MODBUS_PORT=5021 tsx mock-servers/modbus-mock/server.ts",
     "mock:opcua:a": "PUMP_NODES=PUMP_01.Command,PUMP_02.Command OPCUA_PORT=4840 tsx mock-servers/opcua-mock/server.ts",
     "mock:opcua:b": "PUMP_NODES=PUMP_03.Command OPCUA_PORT=4841 tsx mock-servers/opcua-mock/server.ts",
+    "mock:profinet:a": "PROFINET_PORT=34964 DEVICE_NAME=s7-1500-station-a TELEMETRY_DEVICES=PN_TEMP_01:1:1:0:Float32:20:80,PN_PRESSURE_01:1:1:4:Float32:1:10 COMMAND_DEVICES=PN_VALVE_01:2:1:0:Boolean tsx mock-servers/profinet-mock/server.ts",
     "dev:local": "DEVICE_MAP_PATH=src/config/device-map.local.json LOG_LEVEL=info tsx src/index.ts | npx pino-pretty",
     "dev:real": "DEVICE_MAP_PATH=src/config/device-map.real.json LOG_LEVEL=info tsx src/index.ts | npx pino-pretty"
   },

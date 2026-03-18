@@ -4,13 +4,15 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import logger from './utils/logger.js';
 import { gatewayConfig } from './config/gateway.config.js';
-import { validateDeviceMap, buildDeviceIndex, type ModbusConnection, type OpcuaConnection } from './config/device-map.schema.js';
+import { validateDeviceMap, buildDeviceIndex, type ModbusConnection, type OpcuaConnection, type ProfinetConnection } from './config/device-map.schema.js';
 import { ModbusClient } from './telemetry/modbus-client.js';
 import { TelemetryPoller } from './telemetry/telemetry-poller.js';
 import { OpcuaClient } from './command/opcua-client.js';
 import { OpcuaTelemetrySubscriber } from './telemetry/opcua-telemetry-subscriber.js';
+import { ProfinetClient } from './telemetry/profinet-client.js';
+import { ProfinetTelemetryPoller } from './telemetry/profinet-telemetry-poller.js';
 import { CommandHandler, type CommandRouteEntry } from './command/command-handler.js';
-import type { OpcuaCommandDevice } from './config/device-map.schema.js';  // F9: single source of truth
+import type { OpcuaCommandDevice, ProfinetCommandDevice } from './config/device-map.schema.js';  // F9: single source of truth
 import { WsServer } from './transport/ws-server.js';
 import { createRestServer, type ConnectionStatus } from './transport/rest-server.js';
 
@@ -37,8 +39,10 @@ async function main() {
   // 2. Khởi tạo collections
   const modbusClients = new Map<string, ModbusClient>();
   const opcuaClients = new Map<string, OpcuaClient>();
+  const profinetClients = new Map<string, ProfinetClient>();
   const telemetrySources: EventEmitter[] = [];
   const telemetryPollers: TelemetryPoller[] = [];
+  const profinetPollers: ProfinetTelemetryPoller[] = [];
   const opcuaSubscribers: OpcuaTelemetrySubscriber[] = [];
   const connectionStatuses: ConnectionStatus[] = [];
   // F13: Tạo copy riêng cho mỗi client thay vì shared reference
@@ -106,6 +110,32 @@ async function main() {
       }
 
       log.info({ connectionId: oc.connectionId, endpoint: oc.endpoint }, 'Đã khởi tạo OPC UA connection');
+    } else if (conn.protocol === 'profinet') {
+      const pc = conn as ProfinetConnection;
+      const client = new ProfinetClient(pc.connectionId, pc.host, pc.port, pc.deviceName, makeReconnectConfig());
+
+      profinetClients.set(pc.connectionId, client);
+      connectionStatuses.push({
+        connectionId: pc.connectionId,
+        protocol: 'profinet',
+        isConnected: () => client.isConnected(),
+      });
+
+      if (pc.telemetry.length > 0) {
+        const poller = new ProfinetTelemetryPoller(pc.connectionId, client, pc.telemetry, pc.pollIntervalMs);
+        profinetPollers.push(poller);
+        telemetrySources.push(poller);
+
+        client.on('connected', () => {
+          log.info({ connectionId: pc.connectionId }, 'Profinet đã kết nối — bắt đầu polling telemetry');
+          poller.start();
+        });
+        client.on('disconnected', () => {
+          poller.stop();
+        });
+      }
+
+      log.info({ connectionId: pc.connectionId, host: pc.host, port: pc.port }, 'Đã khởi tạo Profinet IO connection');
     }
   }
 
@@ -123,6 +153,17 @@ async function main() {
           device: device as OpcuaCommandDevice,
         });
       }
+    } else if (conn.protocol === 'profinet' && conn.commands.length > 0) {
+      const pc = conn as ProfinetConnection;
+      const client = profinetClients.get(pc.connectionId)!;
+      for (const device of pc.commands) {
+        commandRouteMap.set(device.deviceId, {
+          connectionId: pc.connectionId,
+          protocol: 'profinet',
+          client,
+          device: device as ProfinetCommandDevice,
+        });
+      }
     }
   }
 
@@ -135,6 +176,11 @@ async function main() {
   for (const [connId, client] of opcuaClients) {
     client.connect().catch((err) => {
       log.warn({ connectionId: connId, err }, 'Kết nối OPC UA ban đầu thất bại — sẽ tự reconnect');
+    });
+  }
+  for (const [connId, client] of profinetClients) {
+    client.connect().catch((err) => {
+      log.warn({ connectionId: connId, err }, 'Kết nối Profinet ban đầu thất bại — sẽ tự reconnect');
     });
   }
 
@@ -160,6 +206,7 @@ async function main() {
     {
       modbusConnections: modbusClients.size,
       opcuaConnections: opcuaClients.size,
+      profinetConnections: profinetClients.size,
       totalDevices: allDeviceIndex.size,
       telemetrySources: telemetrySources.length,
     },
@@ -182,6 +229,9 @@ async function main() {
       for (const poller of telemetryPollers) {
         poller.stop();
       }
+      for (const poller of profinetPollers) {
+        poller.stop();
+      }
       for (const subscriber of opcuaSubscribers) {
         await subscriber.stop().catch(() => {});
       }
@@ -192,6 +242,7 @@ async function main() {
       const disconnectResults = await Promise.allSettled([
         ...Array.from(modbusClients.values()).map((c) => c.disconnect()),
         ...Array.from(opcuaClients.values()).map((c) => c.disconnect()),
+        ...Array.from(profinetClients.values()).map((c) => c.disconnect()),
       ]);
       const failures = disconnectResults.filter((r) => r.status === 'rejected');
       if (failures.length > 0) {

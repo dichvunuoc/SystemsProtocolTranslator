@@ -67,6 +67,19 @@ export interface OpcuaTelemetryDevice {
   description: string;
 }
 
+export type ProfinetDataType = 'Float32' | 'UInt16' | 'UInt32' | 'Int16' | 'Int32' | 'Boolean';
+
+export interface ProfinetTelemetryDevice {
+  deviceId: string;
+  slot: number;
+  subslot: number;
+  index: number;
+  length: number;
+  dataType: ProfinetDataType;
+  unit: string;
+  description: string;
+}
+
 // --- Command Device Interfaces ---
 
 export interface ModbusCommandDevice {
@@ -82,6 +95,16 @@ export interface OpcuaCommandDevice {
   deviceId: string;
   nodeId: string;
   dataType: string;
+  description: string;
+}
+
+export interface ProfinetCommandDevice {
+  deviceId: string;
+  slot: number;
+  subslot: number;
+  index: number;
+  length: number;
+  dataType: ProfinetDataType;
   description: string;
 }
 
@@ -109,7 +132,19 @@ export interface OpcuaConnection {
   commands: OpcuaCommandDevice[];
 }
 
-export type ConnectionConfig = ModbusConnection | OpcuaConnection;
+export interface ProfinetConnection {
+  connectionId: string;
+  protocol: 'profinet';
+  description: string;
+  host: string;
+  port: number;
+  deviceName?: string;
+  pollIntervalMs: number;
+  telemetry: ProfinetTelemetryDevice[];
+  commands: ProfinetCommandDevice[];
+}
+
+export type ConnectionConfig = ModbusConnection | OpcuaConnection | ProfinetConnection;
 
 export interface DeviceMap {
   connections: ConnectionConfig[];
@@ -119,6 +154,7 @@ export interface DeviceMap {
 
 const VALID_MODBUS_DATA_TYPES = ['Float32', 'UInt16'];
 const VALID_WORD_ORDERS = ['AB_CD', 'CD_AB', 'BA_DC', 'DC_BA'];
+const VALID_PROFINET_DATA_TYPES: ProfinetDataType[] = ['Float32', 'UInt16', 'UInt32', 'Int16', 'Int32', 'Boolean'];
 
 function validateModbusTelemetryDevice(device: Record<string, unknown>, connectionId: string): ModbusTelemetryDevice {
   if (typeof device.deviceId !== 'string' || device.deviceId.length === 0) {
@@ -224,6 +260,76 @@ function validateOpcuaCommandDevice(device: Record<string, unknown>, connectionI
     deviceId: device.deviceId,
     nodeId: device.nodeId,
     dataType: device.dataType,
+    description: device.description,
+  };
+}
+
+function validateProfinetTelemetryDevice(device: Record<string, unknown>, connectionId: string): ProfinetTelemetryDevice {
+  if (typeof device.deviceId !== 'string' || device.deviceId.length === 0) {
+    throw new Error(`Telemetry device trong Profinet connection "${connectionId}" có deviceId không hợp lệ`);
+  }
+  if (typeof device.slot !== 'number' || device.slot < 0) {
+    throw new Error(`Telemetry device "${device.deviceId}" trong "${connectionId}" có slot không hợp lệ`);
+  }
+  if (typeof device.subslot !== 'number' || device.subslot < 0) {
+    throw new Error(`Telemetry device "${device.deviceId}" trong "${connectionId}" có subslot không hợp lệ`);
+  }
+  if (typeof device.index !== 'number' || device.index < 0) {
+    throw new Error(`Telemetry device "${device.deviceId}" trong "${connectionId}" có index không hợp lệ`);
+  }
+  if (typeof device.length !== 'number' || device.length <= 0) {
+    throw new Error(`Telemetry device "${device.deviceId}" trong "${connectionId}" có length không hợp lệ`);
+  }
+  if (typeof device.dataType !== 'string' || !VALID_PROFINET_DATA_TYPES.includes(device.dataType as ProfinetDataType)) {
+    throw new Error(`Telemetry device "${device.deviceId}" trong "${connectionId}" có dataType không hợp lệ: ${device.dataType}`);
+  }
+  if (typeof device.unit !== 'string') {
+    throw new Error(`Telemetry device "${device.deviceId}" trong "${connectionId}" thiếu unit`);
+  }
+  if (typeof device.description !== 'string') {
+    throw new Error(`Telemetry device "${device.deviceId}" trong "${connectionId}" thiếu description`);
+  }
+  return {
+    deviceId: device.deviceId,
+    slot: device.slot,
+    subslot: device.subslot,
+    index: device.index,
+    length: device.length,
+    dataType: device.dataType as ProfinetDataType,
+    unit: device.unit,
+    description: device.description,
+  };
+}
+
+function validateProfinetCommandDevice(device: Record<string, unknown>, connectionId: string): ProfinetCommandDevice {
+  if (typeof device.deviceId !== 'string' || device.deviceId.length === 0) {
+    throw new Error(`Command device trong Profinet connection "${connectionId}" có deviceId không hợp lệ`);
+  }
+  if (typeof device.slot !== 'number' || device.slot < 0) {
+    throw new Error(`Command device "${device.deviceId}" trong "${connectionId}" có slot không hợp lệ`);
+  }
+  if (typeof device.subslot !== 'number' || device.subslot < 0) {
+    throw new Error(`Command device "${device.deviceId}" trong "${connectionId}" có subslot không hợp lệ`);
+  }
+  if (typeof device.index !== 'number' || device.index < 0) {
+    throw new Error(`Command device "${device.deviceId}" trong "${connectionId}" có index không hợp lệ`);
+  }
+  if (typeof device.length !== 'number' || device.length <= 0) {
+    throw new Error(`Command device "${device.deviceId}" trong "${connectionId}" có length không hợp lệ`);
+  }
+  if (typeof device.dataType !== 'string' || !VALID_PROFINET_DATA_TYPES.includes(device.dataType as ProfinetDataType)) {
+    throw new Error(`Command device "${device.deviceId}" trong "${connectionId}" có dataType không hợp lệ: ${device.dataType}`);
+  }
+  if (typeof device.description !== 'string') {
+    throw new Error(`Command device "${device.deviceId}" trong "${connectionId}" thiếu description`);
+  }
+  return {
+    deviceId: device.deviceId,
+    slot: device.slot,
+    subslot: device.subslot,
+    index: device.index,
+    length: device.length,
+    dataType: device.dataType as ProfinetDataType,
     description: device.description,
   };
 }
@@ -409,9 +515,44 @@ export function validateDeviceMap(raw: unknown): DeviceMap {
         telemetry,
         commands,
       });
+    } else if (c.protocol === 'profinet') {
+      if (typeof c.host !== 'string' || c.host.length === 0) {
+        throw new Error(`Profinet connection "${c.connectionId}" thiếu host`);
+      }
+      if (typeof c.port !== 'number') {
+        throw new Error(`Profinet connection "${c.connectionId}" thiếu port`);
+      }
+      if (telemetryArr.length > 0 && typeof c.pollIntervalMs !== 'number') {
+        throw new Error(`Profinet connection "${c.connectionId}" có telemetry devices nhưng thiếu pollIntervalMs`);
+      }
+      if (c.deviceName !== undefined && typeof c.deviceName !== 'string') {
+        throw new Error(`Profinet connection "${c.connectionId}" có deviceName không hợp lệ`);
+      }
+
+      const telemetry: ProfinetTelemetryDevice[] = [];
+      for (const d of telemetryArr as unknown[]) {
+        telemetry.push(validateProfinetTelemetryDevice(d as Record<string, unknown>, c.connectionId));
+      }
+
+      const commands: ProfinetCommandDevice[] = [];
+      for (const d of commandsArr as unknown[]) {
+        commands.push(validateProfinetCommandDevice(d as Record<string, unknown>, c.connectionId));
+      }
+
+      validatedConnections.push({
+        connectionId: c.connectionId,
+        protocol: 'profinet',
+        description: (c.description as string) || '',
+        host: c.host,
+        port: c.port,
+        deviceName: c.deviceName as string | undefined,
+        pollIntervalMs: (c.pollIntervalMs as number) || 0,
+        telemetry,
+        commands,
+      });
     } else {
       throw new Error(
-        `Protocol không hợp lệ: "${c.protocol}" trong connection "${c.connectionId}". Chỉ hỗ trợ "modbus" và "opcua"`,
+        `Protocol không hợp lệ: "${c.protocol}" trong connection "${c.connectionId}". Chỉ hỗ trợ "modbus", "opcua" và "profinet"`,
       );
     }
 

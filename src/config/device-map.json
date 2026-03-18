@@ -93,6 +93,48 @@
           "description": "Station B pump start/stop"
         }
       ]
+    },
+    {
+      "connectionId": "PROFINET_STATION_A",
+      "protocol": "profinet",
+      "description": "Profinet IO Station A — Siemens S7-1500",
+      "host": "profinet-mock-a",
+      "port": 34964,
+      "deviceName": "s7-1500-station-a",
+      "pollIntervalMs": 500,
+      "telemetry": [
+        {
+          "deviceId": "PN_TEMP_01",
+          "slot": 1,
+          "subslot": 1,
+          "index": 0,
+          "length": 4,
+          "dataType": "Float32",
+          "unit": "°C",
+          "description": "Nhiệt độ đầu vào"
+        },
+        {
+          "deviceId": "PN_PRESSURE_01",
+          "slot": 1,
+          "subslot": 1,
+          "index": 4,
+          "length": 4,
+          "dataType": "Float32",
+          "unit": "bar",
+          "description": "Áp suất đầu ra"
+        }
+      ],
+      "commands": [
+        {
+          "deviceId": "PN_VALVE_01",
+          "slot": 2,
+          "subslot": 1,
+          "index": 0,
+          "length": 1,
+          "dataType": "Boolean",
+          "description": "Van điều khiển 1"
+        }
+      ]
     }
   ]
 }

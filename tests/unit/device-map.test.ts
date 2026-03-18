@@ -1,16 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { validateDeviceMap, buildDeviceIndex } from '../../src/config/device-map.schema.js';
 
 const deviceMap = JSON.parse(
   readFileSync(resolve(import.meta.dirname, '../../src/config/device-map.json'), 'utf-8'),
 );
 
 describe('device-map.json', () => {
-  it('có 2 connections (2 OPC UA)', () => {
-    expect(deviceMap.connections).toHaveLength(2);
+  it('có 3 connections (2 OPC UA + 1 Profinet)', () => {
+    expect(deviceMap.connections).toHaveLength(3);
     const opcua = deviceMap.connections.filter((c: any) => c.protocol === 'opcua');
     expect(opcua).toHaveLength(2);
+    const profinet = deviceMap.connections.filter((c: any) => c.protocol === 'profinet');
+    expect(profinet).toHaveLength(1);
   });
 
   it('mỗi connection có connectionId, protocol, và ít nhất telemetry hoặc commands', () => {
@@ -73,5 +76,44 @@ describe('device-map.json', () => {
     expect(stationA).toBeDefined();
     expect(stationA.telemetry.length).toBeGreaterThan(0);
     expect(stationA.commands.length).toBeGreaterThan(0);
+  });
+
+  it('Profinet connection has correct properties', () => {
+    const pnConn = deviceMap.connections.find((c: any) => c.connectionId === 'PROFINET_STATION_A');
+    expect(pnConn).toBeDefined();
+    expect(pnConn.protocol).toBe('profinet');
+    expect(pnConn.host).toBe('profinet-mock-a');
+    expect(pnConn.port).toBe(34964);
+    expect(pnConn.deviceName).toBe('s7-1500-station-a');
+    expect(pnConn.pollIntervalMs).toBe(500);
+  });
+
+  it('Profinet telemetry devices accessible via buildDeviceIndex', () => {
+    const validated = validateDeviceMap(deviceMap);
+    const index = buildDeviceIndex(validated);
+    const pnTemp = index.get('PN_TEMP_01');
+    expect(pnTemp).toBeDefined();
+    expect(pnTemp!.connectionId).toBe('PROFINET_STATION_A');
+    expect(pnTemp!.protocol).toBe('profinet');
+    expect(pnTemp!.role).toBe('telemetry');
+  });
+
+  it('Profinet command devices accessible via buildDeviceIndex', () => {
+    const validated = validateDeviceMap(deviceMap);
+    const index = buildDeviceIndex(validated);
+    const pnValve = index.get('PN_VALVE_01');
+    expect(pnValve).toBeDefined();
+    expect(pnValve!.connectionId).toBe('PROFINET_STATION_A');
+    expect(pnValve!.protocol).toBe('profinet');
+    expect(pnValve!.role).toBe('command');
+  });
+
+  it('lookup PN_TEMP_01 → PROFINET_STATION_A', () => {
+    const conn = deviceMap.connections.find((c: any) =>
+      c.telemetry?.some((d: any) => d.deviceId === 'PN_TEMP_01'),
+    );
+    expect(conn).toBeDefined();
+    expect(conn.connectionId).toBe('PROFINET_STATION_A');
+    expect(conn.protocol).toBe('profinet');
   });
 });

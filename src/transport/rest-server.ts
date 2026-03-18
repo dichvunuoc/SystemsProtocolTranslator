@@ -11,7 +11,7 @@ const MAX_ACTION_LENGTH = 32;
 
 export interface ConnectionStatus {
   connectionId: string;
-  protocol: 'opcua' | 'modbus';
+  protocol: 'opcua' | 'modbus' | 'profinet';
   isConnected: () => boolean;
 }
 

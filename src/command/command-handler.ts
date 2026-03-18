@@ -1,6 +1,7 @@
 import logger from '../utils/logger.js';
 import { OpcuaClient } from './opcua-client.js';
-import type { OpcuaCommandDevice } from '../config/device-map.schema.js';
+import type { OpcuaCommandDevice, ProfinetCommandDevice, ProfinetDataType } from '../config/device-map.schema.js';
+import { ProfinetClient } from '../telemetry/profinet-client.js';
 
 const log = logger.child({ module: 'command-handler' });
 
@@ -24,9 +25,9 @@ export interface CommandResult {
 
 export interface CommandRouteEntry {
   connectionId: string;
-  protocol: 'opcua' | 'modbus';
-  client: OpcuaClient;
-  device: OpcuaCommandDevice;
+  protocol: 'opcua' | 'modbus' | 'profinet';
+  client: OpcuaClient | ProfinetClient;
+  device: OpcuaCommandDevice | ProfinetCommandDevice;
 }
 
 export class CommandHandler {
@@ -65,15 +66,23 @@ export class CommandHandler {
     // Map action → value theo dataType
     const value = this.mapActionToValue(action, route.device.dataType);
 
-    // Ghi giá trị qua OPC UA
-    await route.client.writeValue(route.device.nodeId, value, route.device.dataType);
+    if (route.protocol === 'profinet') {
+      const client = route.client as ProfinetClient;
+      const device = route.device as ProfinetCommandDevice;
+      const buffer = this.valueToBuffer(value, device.dataType);
+      await client.writeData(device.slot, device.subslot, device.index, buffer);
+    } else {
+      const client = route.client as OpcuaClient;
+      const device = route.device as OpcuaCommandDevice;
+      await client.writeValue(device.nodeId, value, device.dataType);
+    }
 
     const msg = `Command ${action} cho ${deviceId} thành công (connection: ${route.connectionId})`;
-    log.info({ deviceId, action, connectionId: route.connectionId, nodeId: route.device.nodeId }, msg);
+    log.info({ deviceId, action, connectionId: route.connectionId }, msg);
     return { success: true, message: msg };
   }
 
-  private mapActionToValue(action: string, dataType: string): any {
+  private mapActionToValue(action: string, dataType: string): boolean | number {
     if (dataType === 'Boolean') {
       switch (action.toUpperCase()) {
         case 'START':
@@ -87,5 +96,47 @@ export class CommandHandler {
       }
     }
     throw new CommandValidationError(`DataType chưa hỗ trợ mapping action: ${dataType}`);
+  }
+
+  private valueToBuffer(value: boolean | number, dataType: ProfinetDataType): Buffer {
+    switch (dataType) {
+      case 'Boolean': {
+        const buf = Buffer.alloc(1);
+        buf.writeUInt8(value ? 1 : 0, 0);
+        return buf;
+      }
+      case 'Float32': {
+        if (typeof value !== 'number') throw new CommandValidationError(`Float32 cần giá trị number, nhận: ${typeof value}`);
+        const buf = Buffer.alloc(4);
+        buf.writeFloatBE(value, 0);
+        return buf;
+      }
+      case 'UInt16': {
+        if (typeof value !== 'number') throw new CommandValidationError(`UInt16 cần giá trị number, nhận: ${typeof value}`);
+        const buf = Buffer.alloc(2);
+        buf.writeUInt16BE(value, 0);
+        return buf;
+      }
+      case 'UInt32': {
+        if (typeof value !== 'number') throw new CommandValidationError(`UInt32 cần giá trị number, nhận: ${typeof value}`);
+        const buf = Buffer.alloc(4);
+        buf.writeUInt32BE(value, 0);
+        return buf;
+      }
+      case 'Int16': {
+        if (typeof value !== 'number') throw new CommandValidationError(`Int16 cần giá trị number, nhận: ${typeof value}`);
+        const buf = Buffer.alloc(2);
+        buf.writeInt16BE(value, 0);
+        return buf;
+      }
+      case 'Int32': {
+        if (typeof value !== 'number') throw new CommandValidationError(`Int32 cần giá trị number, nhận: ${typeof value}`);
+        const buf = Buffer.alloc(4);
+        buf.writeInt32BE(value, 0);
+        return buf;
+      }
+      default:
+        throw new CommandValidationError(`Profinet dataType không hỗ trợ: ${dataType}`);
+    }
   }
 }
