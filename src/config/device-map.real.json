@@ -1,10 +1,10 @@
 {
   "connections": [
     {
-      "connectionId": "PLC_01",
+      "connectionId": "PLC_SIM1",
       "protocol": "opcua",
-      "description": "PLC thực tế — 192.168.1.149",
-      "endpoint": "opc.tcp://192.168.1.149:4840",
+      "description": "PLC thực tế",
+      "endpoint": "opc.tcp://192.168.0.30:4840",
       "security": {
         "mode": "None",
         "policy": "None",
