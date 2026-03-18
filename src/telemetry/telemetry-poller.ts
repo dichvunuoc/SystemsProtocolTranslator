@@ -3,8 +3,6 @@ import logger from '../utils/logger.js';
 import { ModbusClient } from './modbus-client.js';
 import { parseRegisters, type DataType, type WordOrder } from './register-parser.js';
 
-const log = logger.child({ module: 'telemetry-poller' });
-
 export interface ModbusDevice {
   deviceId: string;
   register: number;
@@ -16,6 +14,7 @@ export interface ModbusDevice {
 }
 
 export interface TelemetryData {
+  connectionId: string;
   deviceId: string;
   value: number;
   unit: string;
@@ -24,25 +23,30 @@ export interface TelemetryData {
 }
 
 export class TelemetryPoller extends EventEmitter {
+  private connectionId: string;
   private modbusClient: ModbusClient;
   private devices: ModbusDevice[];
   private pollIntervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private log;
 
   constructor(
+    connectionId: string,
     modbusClient: ModbusClient,
     devices: ModbusDevice[],
     pollIntervalMs: number,
   ) {
     super();
+    this.connectionId = connectionId;
     this.modbusClient = modbusClient;
     this.devices = devices;
     this.pollIntervalMs = pollIntervalMs;
+    this.log = logger.child({ module: 'telemetry-poller', connectionId });
   }
 
   start(): void {
     if (this.timer) return;
-    log.info(
+    this.log.info(
       { intervalMs: this.pollIntervalMs, deviceCount: this.devices.length },
       'Bắt đầu polling telemetry',
     );
@@ -53,13 +57,13 @@ export class TelemetryPoller extends EventEmitter {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
-      log.info('Dừng polling telemetry');
+      this.log.info('Dừng polling telemetry');
     }
   }
 
   private async poll(): Promise<void> {
     if (!this.modbusClient.isConnected()) {
-      log.warn('Bỏ qua poll cycle — Modbus chưa kết nối');
+      this.log.warn('Bỏ qua poll cycle — Modbus chưa kết nối');
       return;
     }
 
@@ -94,6 +98,7 @@ export class TelemetryPoller extends EventEmitter {
         );
 
         const telemetry: TelemetryData = {
+          connectionId: this.connectionId,
           deviceId: device.deviceId,
           value,
           unit: device.unit,
@@ -101,11 +106,11 @@ export class TelemetryPoller extends EventEmitter {
           timestamp,
         };
 
-        log.debug(telemetry, 'Dữ liệu telemetry');
+        this.log.debug(telemetry, 'Dữ liệu telemetry');
         this.emit('telemetry', telemetry);
       }
     } catch (err) {
-      log.error({ err }, 'Lỗi trong poll cycle — bỏ qua, tiếp tục');
+      this.log.error({ err }, 'Lỗi trong poll cycle — bỏ qua, tiếp tục');
     }
   }
 }

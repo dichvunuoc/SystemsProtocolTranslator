@@ -1,15 +1,23 @@
 services:
-  opcua-mock:
+  opcua-mock-a:
     build:
       context: .
       dockerfile: mock-servers/opcua-mock/Dockerfile
+    environment:
+      - OPCUA_PORT=4840
+      - PUMP_NODES=PUMP_01.Command,PUMP_02.Command
+      - SENSOR_NODES=SENSOR_P_01.Value:Double:1.5:3.5,SENSOR_P_02.Value:Double:1.0:2.5,SENSOR_F_01.Value:Double:10.0:50.0,SENSOR_L_01.Value:Double:0.5:5.0,PUMP_01_STATUS.Value:Double:0:1,PUMP_02_STATUS.Value:Double:0:1
     networks:
       - iiot-net
 
-  modbus-mock:
+  opcua-mock-b:
     build:
       context: .
-      dockerfile: mock-servers/modbus-mock/Dockerfile
+      dockerfile: mock-servers/opcua-mock/Dockerfile
+    environment:
+      - OPCUA_PORT=4840
+      - PUMP_NODES=PUMP_03.Command
+      - SENSOR_NODES=SENSOR_P_03.Value:Double:1.0:4.0,PUMP_03_STATUS.Value:Double:0:1
     networks:
       - iiot-net
 
@@ -21,16 +29,12 @@ services:
       - "3000:3000"
       - "3001:3001"
     environment:
-      - OPCUA_ENDPOINT=opc.tcp://opcua-mock:4840
-      - MODBUS_HOST=modbus-mock
-      - MODBUS_PORT=502
       - REST_PORT=3000
       - WS_PORT=3001
-      - POLL_INTERVAL_MS=1000
       - LOG_LEVEL=info
     depends_on:
-      - opcua-mock
-      - modbus-mock
+      - opcua-mock-a
+      - opcua-mock-b
     networks:
       - iiot-net
 

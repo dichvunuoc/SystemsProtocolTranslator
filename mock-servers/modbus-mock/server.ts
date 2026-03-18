@@ -1,13 +1,69 @@
 import net from 'net';
-import modbus from 'jsmodbus';
+import { ModbusTCPServer } from 'jsmodbus';
 
-const PORT = 502;
+const PORT = parseInt(process.env.MODBUS_PORT || '502', 10);
 const UPDATE_INTERVAL_MS = 2000;
+const STATION_PROFILE = process.env.STATION_PROFILE || 'full';
+
+// --- Định nghĩa profile mô phỏng ---
+
+interface Float32Simulation {
+  offset: number;   // byte offset trong holding buffer
+  type: 'float32';
+  min: number;
+  max: number;
+  swapWords?: boolean; // true = ghi CD_AB (low word trước)
+}
+
+interface UInt16Simulation {
+  offset: number;
+  type: 'uint16';
+  values: number[];
+}
+
+type RegisterSimulation = Float32Simulation | UInt16Simulation;
+
+interface StationProfile {
+  simulations: RegisterSimulation[];
+}
+
+// Tự động tính registerCount từ max offset trong simulations
+function calcRegisterCount(simulations: RegisterSimulation[]): number {
+  const maxByte = Math.max(...simulations.map(s => s.offset + (s.type === 'float32' ? 4 : 2)));
+  return maxByte / 2;
+}
+
+const PROFILES: Record<string, StationProfile> = {
+  full: {
+    simulations: [
+      { offset: 0, type: 'float32', min: 1.5, max: 3.5 },             // Áp suất đầu vào
+      { offset: 4, type: 'float32', min: 1.0, max: 2.5, swapWords: true }, // Áp suất đầu ra (CD_AB)
+      { offset: 8, type: 'float32', min: 10.0, max: 50.0 },           // Lưu lượng
+      { offset: 12, type: 'float32', min: 0.5, max: 5.0 },            // Mực nước
+      { offset: 16, type: 'uint16', values: [0, 1] },                  // Trạng thái bơm 1
+      { offset: 18, type: 'uint16', values: [0, 1] },                  // Trạng thái bơm 2
+    ],
+  },
+  minimal: {
+    simulations: [
+      { offset: 0, type: 'float32', min: 1.0, max: 4.0 },  // Áp suất Station B
+      { offset: 4, type: 'uint16', values: [0, 1] },         // Trạng thái bơm 3
+    ],
+  },
+};
+
+const profile = PROFILES[STATION_PROFILE];
+if (!profile) {
+  console.error(`[Modbus Mock] Profile không hợp lệ: ${STATION_PROFILE}. Chỉ hỗ trợ: ${Object.keys(PROFILES).join(', ')}`);
+  process.exit(1);
+}
 
 // Tạo TCP server cho Modbus
 const netServer = new net.Server();
-const modbusServer = new modbus.server.TCP(netServer, {
-  holding: Buffer.alloc(20, 0), // 10 registers x 2 bytes = 20 bytes
+const registerCount = calcRegisterCount(profile.simulations);
+const holdingSize = registerCount * 2; // mỗi register = 2 bytes
+const modbusServer = new ModbusTCPServer(netServer, {
+  holding: Buffer.alloc(holdingSize, 0),
 });
 
 /**
@@ -27,56 +83,42 @@ function randomRange(min: number, max: number): number {
 }
 
 /**
- * Cập nhật register values với dữ liệu mô phỏng
+ * Cập nhật register values dựa trên profile
  */
 function updateRegisters() {
   const holding = modbusServer.holding;
+  const values: string[] = [];
 
-  // Registers 0-1: Áp suất đầu vào (1.5–3.5 bar)
-  const pressure1 = randomRange(1.5, 3.5);
-  const [p1Hi, p1Lo] = floatToRegisters(pressure1);
-  holding.writeUInt16BE(p1Hi, 0);
-  holding.writeUInt16BE(p1Lo, 2);
+  for (const sim of profile.simulations) {
+    if (sim.type === 'float32') {
+      const val = randomRange(sim.min, sim.max);
+      const [hi, lo] = floatToRegisters(val);
+      if (sim.swapWords) {
+        // CD_AB: low word trước, high word sau
+        holding.writeUInt16BE(lo, sim.offset);
+        holding.writeUInt16BE(hi, sim.offset + 2);
+      } else {
+        // AB_CD: high word trước, low word sau
+        holding.writeUInt16BE(hi, sim.offset);
+        holding.writeUInt16BE(lo, sim.offset + 2);
+      }
+      values.push(`${val.toFixed(2)}`);
+    } else if (sim.type === 'uint16') {
+      const val = sim.values[Math.floor(Math.random() * sim.values.length)];
+      holding.writeUInt16BE(val, sim.offset);
+      values.push(`${val}`);
+    }
+  }
 
-  // Registers 2-3: Áp suất đầu ra (1.0–2.5 bar) — CD_AB word order
-  // Mock server lưu theo AB_CD, gateway sẽ parse theo CD_AB config
-  const pressure2 = randomRange(1.0, 2.5);
-  const [p2Hi, p2Lo] = floatToRegisters(pressure2);
-  // Đảo word order: low word ở register 2, high word ở register 3
-  holding.writeUInt16BE(p2Lo, 4);
-  holding.writeUInt16BE(p2Hi, 6);
-
-  // Registers 4-5: Lưu lượng (10.0–50.0 m3/h)
-  const flowRate = randomRange(10.0, 50.0);
-  const [fHi, fLo] = floatToRegisters(flowRate);
-  holding.writeUInt16BE(fHi, 8);
-  holding.writeUInt16BE(fLo, 10);
-
-  // Registers 6-7: Mực nước (0.5–5.0 m)
-  const waterLevel = randomRange(0.5, 5.0);
-  const [wHi, wLo] = floatToRegisters(waterLevel);
-  holding.writeUInt16BE(wHi, 12);
-  holding.writeUInt16BE(wLo, 14);
-
-  // Register 8: Trạng thái bơm 1 (0 hoặc 1)
-  const pump1Status = Math.random() > 0.5 ? 1 : 0;
-  holding.writeUInt16BE(pump1Status, 16);
-
-  // Register 9: Trạng thái bơm 2 (0 hoặc 1)
-  const pump2Status = Math.random() > 0.5 ? 1 : 0;
-  holding.writeUInt16BE(pump2Status, 18);
-
-  console.log(
-    `[Modbus Mock] Cập nhật registers — P1: ${pressure1.toFixed(2)} bar, P2: ${pressure2.toFixed(2)} bar, Flow: ${flowRate.toFixed(1)} m3/h, Level: ${waterLevel.toFixed(2)} m, Pump1: ${pump1Status}, Pump2: ${pump2Status}`,
-  );
+  console.log(`[Modbus Mock] [${STATION_PROFILE}] Cập nhật registers — ${values.join(', ')}`);
 }
 
-// Cập nhật dữ liệu mô phỏng mỗi 2 giây
+// Cập nhật dữ liệu mô phỏng
 setInterval(updateRegisters, UPDATE_INTERVAL_MS);
 updateRegisters(); // Cập nhật ngay lần đầu
 
 netServer.listen(PORT, () => {
-  console.log(`[Modbus Mock] Server đã khởi động tại 0.0.0.0:${PORT}`);
+  console.log(`[Modbus Mock] Server đã khởi động tại 0.0.0.0:${PORT} (profile: ${STATION_PROFILE}, registers: ${registerCount})`);
 });
 
 // Graceful shutdown

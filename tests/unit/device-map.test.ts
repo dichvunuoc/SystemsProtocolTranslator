@@ -7,56 +7,71 @@ const deviceMap = JSON.parse(
 );
 
 describe('device-map.json', () => {
-  it('có 2 OPC UA devices', () => {
-    expect(deviceMap.opcua.devices).toHaveLength(2);
+  it('có 2 connections (2 OPC UA)', () => {
+    expect(deviceMap.connections).toHaveLength(2);
+    const opcua = deviceMap.connections.filter((c: any) => c.protocol === 'opcua');
+    expect(opcua).toHaveLength(2);
   });
 
-  it('có 6 Modbus devices', () => {
-    expect(deviceMap.modbus.devices).toHaveLength(6);
-  });
-
-  it('mỗi OPC UA device có đủ các trường bắt buộc', () => {
-    for (const device of deviceMap.opcua.devices) {
-      expect(device).toHaveProperty('deviceId');
-      expect(device).toHaveProperty('nodeId');
-      expect(device).toHaveProperty('dataType');
-      expect(device).toHaveProperty('description');
+  it('mỗi connection có connectionId, protocol, và ít nhất telemetry hoặc commands', () => {
+    for (const conn of deviceMap.connections) {
+      expect(conn).toHaveProperty('connectionId');
+      expect(conn).toHaveProperty('protocol');
+      const hasTelemetry = Array.isArray(conn.telemetry) && conn.telemetry.length > 0;
+      const hasCommands = Array.isArray(conn.commands) && conn.commands.length > 0;
+      expect(hasTelemetry || hasCommands).toBe(true);
     }
   });
 
-  it('mỗi Modbus device có đủ các trường bắt buộc', () => {
-    for (const device of deviceMap.modbus.devices) {
-      expect(device).toHaveProperty('deviceId');
-      expect(device).toHaveProperty('register');
-      expect(device).toHaveProperty('length');
-      expect(device).toHaveProperty('dataType');
-      expect(device).toHaveProperty('wordOrder');
-      expect(device).toHaveProperty('unit');
-      expect(device).toHaveProperty('description');
+  it('OPC UA connections có endpoint', () => {
+    const opcuaConns = deviceMap.connections.filter((c: any) => c.protocol === 'opcua');
+    for (const conn of opcuaConns) {
+      expect(conn).toHaveProperty('endpoint');
     }
   });
 
-  it('lookup PUMP_01 trả về đúng nodeId', () => {
-    const pump01 = deviceMap.opcua.devices.find(
-      (d: any) => d.deviceId === 'PUMP_01',
+  it('deviceId unique across ALL connections (telemetry + commands)', () => {
+    const allDeviceIds: string[] = [];
+    for (const conn of deviceMap.connections) {
+      if (conn.telemetry) {
+        for (const device of conn.telemetry) {
+          allDeviceIds.push(device.deviceId);
+        }
+      }
+      if (conn.commands) {
+        for (const device of conn.commands) {
+          allDeviceIds.push(device.deviceId);
+        }
+      }
+    }
+    const unique = new Set(allDeviceIds);
+    expect(unique.size).toBe(allDeviceIds.length);
+  });
+
+  it('lookup PUMP_01 tìm đúng connection STATION_A trong commands', () => {
+    const conn = deviceMap.connections.find((c: any) =>
+      c.commands?.some((d: any) => d.deviceId === 'PUMP_01'),
     );
-    expect(pump01).toBeDefined();
+    expect(conn).toBeDefined();
+    expect(conn.connectionId).toBe('STATION_A');
+    expect(conn.protocol).toBe('opcua');
+    const pump01 = conn.commands.find((d: any) => d.deviceId === 'PUMP_01');
     expect(pump01.nodeId).toBe('ns=2;s=PUMP_01.Command');
-    expect(pump01.dataType).toBe('Boolean');
   });
 
-  it('lookup SENSOR_P_02 có wordOrder CD_AB', () => {
-    const sensor = deviceMap.modbus.devices.find(
-      (d: any) => d.deviceId === 'SENSOR_P_02',
+  it('lookup SENSOR_P_03 tìm đúng connection STATION_B trong telemetry', () => {
+    const conn = deviceMap.connections.find((c: any) =>
+      c.telemetry?.some((d: any) => d.deviceId === 'SENSOR_P_03'),
     );
-    expect(sensor).toBeDefined();
-    expect(sensor.wordOrder).toBe('CD_AB');
-    expect(sensor.register).toBe(2);
+    expect(conn).toBeDefined();
+    expect(conn.connectionId).toBe('STATION_B');
+    expect(conn.protocol).toBe('opcua');
   });
 
-  it('không có register address bị trùng', () => {
-    const addresses = deviceMap.modbus.devices.map((d: any) => d.register);
-    const unique = new Set(addresses);
-    expect(unique.size).toBe(addresses.length);
+  it('STATION_A có cả telemetry và commands (unified)', () => {
+    const stationA = deviceMap.connections.find((c: any) => c.connectionId === 'STATION_A');
+    expect(stationA).toBeDefined();
+    expect(stationA.telemetry.length).toBeGreaterThan(0);
+    expect(stationA.commands.length).toBeGreaterThan(0);
   });
 });

@@ -9,8 +9,12 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "mock:opcua": "tsx mock-servers/opcua-mock/server.ts",
-    "mock:modbus": "tsx mock-servers/modbus-mock/server.ts"
+    "mock:modbus:a": "STATION_PROFILE=full MODBUS_PORT=5020 tsx mock-servers/modbus-mock/server.ts",
+    "mock:modbus:b": "STATION_PROFILE=minimal MODBUS_PORT=5021 tsx mock-servers/modbus-mock/server.ts",
+    "mock:opcua:a": "PUMP_NODES=PUMP_01.Command,PUMP_02.Command OPCUA_PORT=4840 tsx mock-servers/opcua-mock/server.ts",
+    "mock:opcua:b": "PUMP_NODES=PUMP_03.Command OPCUA_PORT=4841 tsx mock-servers/opcua-mock/server.ts",
+    "dev:local": "DEVICE_MAP_PATH=src/config/device-map.local.json LOG_LEVEL=info tsx src/index.ts | npx pino-pretty",
+    "dev:real": "DEVICE_MAP_PATH=src/config/device-map.real.json LOG_LEVEL=info tsx src/index.ts | npx pino-pretty"
   },
   "keywords": [],
   "author": "",

@@ -1,30 +1,44 @@
 import { EventEmitter } from 'events';
 import ModbusRTU from 'modbus-serial';
 import logger from '../utils/logger.js';
-import { gatewayConfig } from '../config/gateway.config.js';
-
-const log = logger.child({ module: 'modbus-client' });
+import type { ReconnectConfig } from '../config/device-map.schema.js';
 
 export class ModbusClient extends EventEmitter {
   private client: ModbusRTU;
+  private connectionId: string;
   private host: string;
   private port: number;
   private unitId: number;
+  private reconnectConfig: ReconnectConfig;
   private connected = false;
   private reconnecting = false;
   private shouldReconnect = true;
+  private log;
 
-  constructor(host: string, port: number, unitId: number) {
+  constructor(
+    connectionId: string,
+    host: string,
+    port: number,
+    unitId: number,
+    reconnectConfig: ReconnectConfig,
+  ) {
     super();
     this.client = new ModbusRTU();
+    this.connectionId = connectionId;
     this.host = host;
     this.port = port;
     this.unitId = unitId;
+    this.reconnectConfig = reconnectConfig;
+    this.log = logger.child({ module: 'modbus-client', connectionId });
+  }
+
+  getConnectionId(): string {
+    return this.connectionId;
   }
 
   async connect(): Promise<void> {
     try {
-      log.info(
+      this.log.info(
         { host: this.host, port: this.port },
         'Đang kết nối Modbus TCP...',
       );
@@ -33,10 +47,10 @@ export class ModbusClient extends EventEmitter {
       this.client.setTimeout(5000);
       this.connected = true;
       this.reconnecting = false;
-      log.info('Kết nối Modbus TCP thành công');
+      this.log.info('Kết nối Modbus TCP thành công');
       this.emit('connected');
     } catch (err) {
-      log.error({ err }, 'Lỗi kết nối Modbus TCP');
+      this.log.error({ err }, 'Lỗi kết nối Modbus TCP');
       this.connected = false;
       this.scheduleReconnect();
     }
@@ -51,14 +65,13 @@ export class ModbusClient extends EventEmitter {
     }
     try {
       const result = await this.client.readHoldingRegisters(addr, length);
-      log.debug(
+      this.log.debug(
         { addr, length, data: result.data },
         'Đọc holding registers thành công',
       );
       return result.data;
     } catch (err) {
-      // F6: Cập nhật connected flag khi read thất bại do mất kết nối
-      log.error({ err, addr, length }, 'Lỗi đọc holding registers — đánh dấu mất kết nối');
+      this.log.error({ err, addr, length }, 'Lỗi đọc holding registers — đánh dấu mất kết nối');
       this.connected = false;
       this.emit('disconnected');
       this.scheduleReconnect();
@@ -71,7 +84,7 @@ export class ModbusClient extends EventEmitter {
     this.connected = false;
     try {
       this.client.close(() => {});
-      log.info('Đã ngắt kết nối Modbus TCP');
+      this.log.info('Đã ngắt kết nối Modbus TCP');
     } catch {
       // Bỏ qua lỗi khi đóng
     }
@@ -85,11 +98,11 @@ export class ModbusClient extends EventEmitter {
   private scheduleReconnect(): void {
     if (!this.shouldReconnect || this.reconnecting) return;
     this.reconnecting = true;
-    let delay = gatewayConfig.reconnectBaseMs;
+    let delay = this.reconnectConfig.baseMs;
 
     const attempt = async () => {
       if (!this.shouldReconnect) return;
-      log.info({ delay }, 'Thử kết nối lại Modbus TCP...');
+      this.log.info({ delay }, 'Thử kết nối lại Modbus TCP...');
       try {
         this.client = new ModbusRTU();
         await this.client.connectTCP(this.host, { port: this.port });
@@ -97,10 +110,10 @@ export class ModbusClient extends EventEmitter {
         this.client.setTimeout(5000);
         this.connected = true;
         this.reconnecting = false;
-        log.info('Kết nối lại Modbus TCP thành công');
+        this.log.info('Kết nối lại Modbus TCP thành công');
         this.emit('connected');
       } catch {
-        delay = Math.min(delay * 2, gatewayConfig.reconnectMaxMs);
+        delay = Math.min(delay * 2, this.reconnectConfig.maxMs);
         setTimeout(attempt, delay);
       }
     };

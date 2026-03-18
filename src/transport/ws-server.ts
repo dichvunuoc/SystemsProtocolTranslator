@@ -1,6 +1,7 @@
+import { EventEmitter } from 'events';
 import { WebSocketServer, WebSocket } from 'ws';
 import logger from '../utils/logger.js';
-import type { TelemetryPoller, TelemetryData } from '../telemetry/telemetry-poller.js';
+import type { TelemetryData } from '../telemetry/telemetry-poller.js';
 
 const log = logger.child({ module: 'ws-server' });
 
@@ -10,7 +11,7 @@ export class WsServer {
   private wss: WebSocketServer;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(port: number, telemetryPoller: TelemetryPoller) {
+  constructor(port: number, telemetrySources: EventEmitter[]) {
     this.wss = new WebSocketServer({ port });
 
     // Lắng nghe kết nối mới
@@ -33,15 +34,17 @@ export class WsServer {
       });
     });
 
-    // Subscribe vào telemetry events — broadcast tới tất cả clients
-    telemetryPoller.on('telemetry', (data: TelemetryData) => {
-      const message = JSON.stringify(data);
-      this.wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(message);
-        }
+    // Subscribe vào telemetry events từ TẤT CẢ sources — broadcast tới tất cả clients
+    for (const source of telemetrySources) {
+      source.on('telemetry', (data: TelemetryData) => {
+        const message = JSON.stringify(data);
+        this.wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+          }
+        });
       });
-    });
+    }
 
     // Heartbeat ping/pong mỗi 30s
     this.heartbeatTimer = setInterval(() => {
@@ -56,7 +59,7 @@ export class WsServer {
       });
     }, HEARTBEAT_INTERVAL_MS);
 
-    log.info({ port }, 'WebSocket server đã khởi động');
+    log.info({ port, sourceCount: telemetrySources.length }, 'WebSocket server đã khởi động');
   }
 
   close(): void {

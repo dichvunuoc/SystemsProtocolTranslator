@@ -1,8 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import logger from '../utils/logger.js';
-import { CommandHandler } from '../command/command-handler.js';
-import type { OpcuaClient } from '../command/opcua-client.js';
-import type { ModbusClient } from '../telemetry/modbus-client.js';
+import { CommandHandler, CommandValidationError } from '../command/command-handler.js';
+import type { DeviceMap } from '../config/device-map.schema.js';
 
 const log = logger.child({ module: 'rest-server' });
 
@@ -10,11 +9,16 @@ const log = logger.child({ module: 'rest-server' });
 const MAX_DEVICE_ID_LENGTH = 64;
 const MAX_ACTION_LENGTH = 32;
 
+export interface ConnectionStatus {
+  connectionId: string;
+  protocol: 'opcua' | 'modbus';
+  isConnected: () => boolean;
+}
+
 export interface RestServerDeps {
   commandHandler: CommandHandler;
-  opcuaClient: OpcuaClient;
-  modbusClient: ModbusClient;
-  deviceMap: any;
+  connections: ConnectionStatus[];
+  deviceMap: DeviceMap;
   startTime?: number;
 }
 
@@ -22,7 +26,7 @@ export function createRestServer(deps: RestServerDeps) {
   const app = express();
   const startTime = deps.startTime ?? Date.now();
 
-  // F5: Giới hạn body size 1KB — edge gateway chỉ nhận payload nhỏ
+  // Giới hạn body size 1KB — edge gateway chỉ nhận payload nhỏ
   app.use(express.json({ limit: '1kb' }));
 
   // POST /api/command — Gửi lệnh điều khiển thiết bị
@@ -38,7 +42,7 @@ export function createRestServer(deps: RestServerDeps) {
       return;
     }
 
-    // F4: Validate input — chỉ cho phép alphanumeric và underscore
+    // Validate input — chỉ cho phép alphanumeric và underscore
     if (
       typeof deviceId !== 'string' ||
       typeof action !== 'string' ||
@@ -64,7 +68,7 @@ export function createRestServer(deps: RestServerDeps) {
       res.json(result);
     } catch (err: any) {
       const message = err.message || 'Lỗi không xác định';
-      if (message.includes('không tồn tại') || message.includes('không hợp lệ')) {
+      if (err instanceof CommandValidationError) {
         log.warn({ deviceId, action, error: message }, 'Command không hợp lệ');
         res.status(400).json({ success: false, message });
       } else {
@@ -74,20 +78,57 @@ export function createRestServer(deps: RestServerDeps) {
     }
   });
 
-  // GET /api/health — Kiểm tra trạng thái gateway
+  // GET /api/health — Kiểm tra trạng thái gateway (multi-connection)
+  // F7: Trả HTTP status phản ánh tình trạng thực tế
   app.get('/api/health', (_req: Request, res: Response) => {
+    const connections: Record<string, { protocol: string; status: string }> = {};
+    let connectedCount = 0;
+    const totalCount = deps.connections.length;
+
+    for (const conn of deps.connections) {
+      const isConn = conn.isConnected();
+      if (isConn) connectedCount++;
+      connections[conn.connectionId] = {
+        protocol: conn.protocol,
+        status: isConn ? 'connected' : 'disconnected',
+      };
+    }
+
+    const overallStatus = totalCount === 0 ? 'unknown'
+      : connectedCount === totalCount ? 'healthy'
+      : connectedCount > 0 ? 'degraded'
+      : 'unhealthy';
+
     const status = {
-      opcua: deps.opcuaClient.isConnected() ? 'connected' : 'disconnected',
-      modbus: deps.modbusClient.isConnected() ? 'connected' : 'disconnected',
+      status: overallStatus,
+      connections,
       uptime: Math.floor((Date.now() - startTime) / 1000),
     };
     log.debug(status, 'Health check');
-    res.json(status);
+
+    const httpStatus = overallStatus === 'unhealthy' ? 503 : 200;
+    res.status(httpStatus).json(status);
   });
 
-  // GET /api/devices — Danh sách tất cả devices
+  // GET /api/devices — Danh sách tất cả devices (F15: ẩn internal endpoints)
   app.get('/api/devices', (_req: Request, res: Response) => {
-    res.json(deps.deviceMap);
+    const sanitized = {
+      connections: deps.deviceMap.connections.map((conn) => ({
+        connectionId: conn.connectionId,
+        protocol: conn.protocol,
+        description: conn.description,
+        telemetry: conn.telemetry.map((d) => ({
+          deviceId: d.deviceId,
+          unit: 'unit' in d ? d.unit : undefined,
+          description: d.description,
+        })),
+        commands: conn.commands.map((d) => ({
+          deviceId: d.deviceId,
+          description: d.description,
+        })),
+      })),
+    };
+    res.json(sanitized);
   });
 
   return app;

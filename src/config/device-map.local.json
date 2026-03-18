@@ -1,0 +1,40 @@
+{
+  "connections": [
+    {
+      "connectionId": "STATION_A",
+      "protocol": "opcua",
+      "description": "Trạm bơm A — OPC UA unified (telemetry + command)",
+      "endpoint": "opc.tcp://localhost:4840",
+      "telemetry": [
+        {
+          "deviceId": "SENSOR_P_01",
+          "nodeId": "ns=2;s=SENSOR_P_01.Value",
+          "dataType": "Double",
+          "unit": "bar",
+          "description": "Inlet pressure"
+        },
+        {
+          "deviceId": "SENSOR_P_02",
+          "nodeId": "ns=2;s=SENSOR_P_02.Value",
+          "dataType": "Double",
+          "unit": "bar",
+          "description": "Outlet pressure"
+        }
+      ],
+      "commands": [
+        {
+          "deviceId": "PUMP_01",
+          "nodeId": "ns=2;s=PUMP_01.Command",
+          "dataType": "Boolean",
+          "description": "Main pump start/stop"
+        },
+        {
+          "deviceId": "PUMP_02",
+          "nodeId": "ns=2;s=PUMP_02.Command",
+          "dataType": "Boolean",
+          "description": "Backup pump start/stop"
+        }
+      ]
+    }
+  ]
+}
